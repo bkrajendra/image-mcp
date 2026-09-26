@@ -2,6 +2,9 @@
 name = "image-mcp"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/bkrajendra/image-mcp"
+description = "A sandboxed image processing MCP server for AI agents."
 
 [dependencies]
 anyhow = "1"

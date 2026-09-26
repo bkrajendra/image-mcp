@@ -9,6 +9,7 @@ Resize, compress, convert and optimize images — with every path checked agains
 [![Release](https://img.shields.io/github/v/release/bkrajendra/image-mcp?style=flat-square&label=release)](https://github.com/bkrajendra/image-mcp/releases/latest)
 [![Release workflow](https://img.shields.io/github/actions/workflow/status/bkrajendra/image-mcp/release.yml?branch=main&style=flat-square&label=build)](https://github.com/bkrajendra/image-mcp/actions/workflows/release.yml)
 [![Rust](https://img.shields.io/badge/rust-2024-orange?style=flat-square)](Cargo.toml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
 </div>
 
@@ -105,5 +106,9 @@ Every commit pushed to `main` is automatically tagged (`vX.Y.Z`, patch bump) and
 - `x86_64-apple-darwin`
 - `aarch64-apple-darwin`
 - `x86_64-pc-windows-msvc`
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
 
 See [`.github/workflows/release.yml`](.github/workflows/release.yml).
