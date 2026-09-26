@@ -1,0 +1,155 @@
+name: Release
+
+# Every push to main gets its own release: this job bumps a patch version
+# tag automatically (no manual version bumping / changelog step required),
+# then builds and publishes prebuilt binaries for Linux, macOS and Windows.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".github/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  BIN_NAME: image-mcp
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+      created: ${{ steps.next.outputs.created }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine next release tag
+        id: next
+        run: |
+          git fetch --tags --force
+
+          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -t. -k1.2,1n -k2,2n -k3,3n | tail -n1)
+
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            IFS='.' read -r major minor patch <<< "${latest#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          if git rev-parse "$next" >/dev/null 2>&1; then
+            echo "Tag $next already exists; nothing to release for this commit." >&2
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$next" -m "Release $next"
+            git push origin "$next"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-15
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: |
+          curl -fsSL "https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.cargo/bin"
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Stage artifact (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          stage="dist/stage"
+          mkdir -p "$stage" dist
+          cp "target/${{ matrix.target }}/release/${BIN_NAME}" "$stage/"
+          cp README.md "$stage/"
+          tar -C "$stage" -czf "dist/${BIN_NAME}-${{ matrix.target }}.tar.gz" .
+
+      - name: Stage artifact (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          stage="dist/stage"
+          mkdir -p "$stage" dist
+          cp "target/${{ matrix.target }}/release/${BIN_NAME}.exe" "$stage/"
+          cp README.md "$stage/"
+          (cd "$stage" && 7z a "../${BIN_NAME}-${{ matrix.target }}.zip" .)
+
+      - name: Checksum
+        shell: bash
+        run: |
+          cd dist
+          for f in "${BIN_NAME}"-*.tar.gz "${BIN_NAME}"-*.zip; do
+            [ -e "$f" ] || continue
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$f" > "$f.sha256"
+            else
+              shasum -a 256 "$f" > "$f.sha256"
+            fi
+          done
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.tag.outputs.tag }}
+          name: ${{ needs.tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
